@@ -1,0 +1,67 @@
+body {
+    background: #0b0f14;
+    color: #e5f7ff;
+}
+
+/* Containers com efeito vidro */
+.block-glass {
+    background: rgba(15, 23, 32, 0.7);
+    border: 1px solid rgba(98, 245, 255, 0.25);
+    backdrop-filter: blur(12px) saturate(140%);
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 1rem;
+}
+
+/* Botões */
+button,
+.stDownloadButton button {
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    color: #e5f7ff;
+    border: 1px solid rgba(98, 245, 255, 0.35);
+    border-radius: 8px;
+    transition: 0.3s;
+}
+
+button:hover,
+.stDownloadButton button:hover {
+    background: linear-gradient(135deg, #2563eb, #0ea5e9);
+    color: #fff;
+}
+
+/* Labels mais visíveis */
+label,
+.stSelectbox label,
+.stTextInput label,
+.stTextArea label {
+    color: #d1f1ff !important;
+    font-weight: 500;
+}
+
+/* Inputs mais claros */
+.stSelectbox div[data-baseweb="select"],
+.stTextInput input,
+.stTextArea textarea {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    color: #e5f7ff !important;
+    border-radius: 6px;
+    border: 1px solid rgba(98, 245, 255, 0.25);
+}
+
+/* Placeholders */
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {
+    color: #9fb9c8 !important;
+    opacity: 0.7;
+}
+
+/* Cards de métricas */
+[data-testid="stMetric"] {
+    background: rgba(15, 23, 32, 0.6);
+    border: 1px solid rgba(98, 245, 255, 0.25);
+    padding: 12px;
+    border-radius: 12px;
+    text-align: center;
+    color: #e5f7ff;
+    backdrop-filter: blur(8px) saturate(120%);
+}
