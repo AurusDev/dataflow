@@ -153,3 +153,15 @@ h1 {
         color: #e5f7ff !important;
     }
 }
+
+/* Chips do multiselect (para não ficar azul claro com fonte clara) */
+.stMultiSelect [data-baseweb="tag"] {
+    background-color: rgba(98, 245, 255, 0.15) !important;
+    border: 1px solid rgba(98, 245, 255, 0.35) !important;
+    color: #e5f7ff !important;
+    font-weight: 500;
+}
+
+.stMultiSelect [data-baseweb="tag"] span {
+    color: #e5f7ff !important;
+}

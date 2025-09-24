@@ -48,7 +48,6 @@ def _coerce_value_for_col(df: pd.DataFrame, col: str, val: str):
         try:
             return pd.to_numeric(val)
         except Exception:
-            # se não der, mantém string mesmo
             return val
     return val
 
@@ -75,11 +74,9 @@ def apply_filters(df: pd.DataFrame, filters: dict | None) -> pd.DataFrame:
         if op is None:
             return df
         coerced = _coerce_value_for_col(df, col, val)
-        # query com variável local para evitar injeções e respeitar dtype
         expr = f"`{col}` {op} @coerced"
         return df.query(expr, local_dict={"coerced": coerced})
     except Exception:
-        # se der qualquer erro, retorna df sem filtro
         return df
 
 def recompute_view():
@@ -108,7 +105,7 @@ with left:
 
         st.session_state.df_master = df.copy()
         st.session_state.orig_master = df.copy()
-        st.session_state.filters = None  # reset filtros
+        st.session_state.filters = None
         recompute_view()
 
         st.success(f"Arquivo carregado: {uploaded.name} — {df.shape[0]} linhas × {df.shape[1]} colunas")
@@ -123,7 +120,6 @@ with right:
             st.session_state.df_view = None
             st.info("A planilha foi descartada. Faça um novo upload para continuar.")
 
-# Se não houver planilha, não renderiza abas
 if st.session_state.df_master is None or st.session_state.df_view is None:
     st.stop()
 
@@ -136,17 +132,17 @@ tab_edit, tab_stats, tab_charts, tab_export = st.tabs(
 with tab_edit:
     st.subheader("Editor de Dados")
 
-    # -------- Filtros (globais) --------
+    # -------- Filtros --------
     with st.expander("🔍 Filtros"):
         df = st.session_state.df_master
         colnames = list(df.columns)
-        fcol = st.selectbox("Coluna", colnames, index=0, help="Selecione a coluna para filtrar")
+        fcol = st.selectbox("Coluna", colnames, index=0)
         fop = st.selectbox(
             "Condição",
             ["É igual a", "É diferente de", "Maior que", "Menor que", "Maior ou igual a", "Menor ou igual a", "Contém (texto)"],
             index=0,
         )
-        fval = st.text_input("Valor", help="Digite o valor a ser usado no filtro")
+        fval = st.text_input("Valor")
 
         c1, c2 = st.columns([1,1])
         with c1:
@@ -171,8 +167,12 @@ with tab_edit:
 
         cols_to_drop = st.multiselect("Remover colunas", options=list(st.session_state.df_master.columns))
         if st.button("Remover colunas selecionadas"):
-            st.session_state.df_master = delete_columns(st.session_state.df_master, cols_to_drop)
-            recompute_view()
+            if cols_to_drop:
+                st.session_state.df_master = delete_columns(st.session_state.df_master, cols_to_drop)
+                recompute_view()
+                st.success(f"Colunas removidas: {', '.join(cols_to_drop)}")
+            else:
+                st.warning("Nenhuma coluna selecionada para remover.")
 
         idx_str = st.text_input("Remover linhas (índices separados por vírgula)", value="")
         if st.button("Remover linhas"):
@@ -197,10 +197,9 @@ with tab_edit:
             st.session_state.df_master = st.session_state.orig_master.copy()
             recompute_view()
 
-    # -------- Editor (edita df_master via df_view) --------
     st.caption("💡 Dica: você pode editar diretamente as células (clique duplo).")
     view = st.session_state.df_view.copy()
-    view["__rowid__"] = view.index  # preservar índice de origem
+    view["__rowid__"] = view.index
 
     edited = st.data_editor(
         view,
@@ -212,16 +211,13 @@ with tab_edit:
         column_config={"__rowid__": st.column_config.NumberColumn("row_id", help="id", disabled=True, required=False)},
     )
 
-    # sincronizar de volta no df_master
     edited = pd.DataFrame(edited)
     if "__rowid__" in edited.columns:
-        # linhas existentes
         old_rows = edited[edited["__rowid__"].notna()].copy()
         if not old_rows.empty:
             base_cols = [c for c in old_rows.columns if c != "__rowid__"]
             st.session_state.df_master.loc[old_rows["__rowid__"].astype(int).values, base_cols] = old_rows[base_cols].values
 
-        # novas linhas (sem rowid) -> anexar ao master
         new_rows = edited[edited["__rowid__"].isna()].drop(columns="__rowid__", errors="ignore")
         if not new_rows.empty:
             st.session_state.df_master = pd.concat([st.session_state.df_master, new_rows], ignore_index=True)
@@ -252,8 +248,6 @@ with tab_stats:
             with c4: st.metric("Mínimo", round(df[col].min(), 2))
             with c5: st.metric("Máximo", round(df[col].max(), 2))
             with c6: st.metric("Valores Únicos", df[col].nunique())
-            st.info(f"A coluna **{col}** possui média {round(df[col].mean(),2)}, "
-                    f"mediana {round(df[col].median(),2)}; varia de {df[col].min()} a {df[col].max()}.")
             st.bar_chart(df[col].dropna(), use_container_width=True)
         else:
             st.write(f"### 🔤 Coluna Categórica: **{col}**")
@@ -263,8 +257,6 @@ with tab_stats:
             with c2: st.metric("Valor Mais Frequente", str(top))
             freq = df[col].value_counts()
             if not freq.empty:
-                st.info(f"A coluna **{col}** possui {df[col].nunique()} valores únicos. "
-                        f"O mais frequente é **{freq.index[0]}** ({freq.iloc[0]} ocorrências).")
                 st.bar_chart(freq.head(10), use_container_width=True)
 
 # ---------------------- GRÁFICOS ----------------------
