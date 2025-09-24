@@ -1,67 +1,155 @@
+/* ====== BASE ====== */
 body {
-    background: #0b0f14;
-    color: #e5f7ff;
+    font-family: 'Segoe UI', sans-serif;
 }
 
-/* Containers com efeito vidro */
+h1 {
+    font-weight: 700;
+    margin: 0;
+    transition: color .2s;
+}
+
 .block-glass {
-    background: rgba(15, 23, 32, 0.7);
-    border: 1px solid rgba(98, 245, 255, 0.25);
-    backdrop-filter: blur(12px) saturate(140%);
     border-radius: 16px;
     padding: 14px 16px;
     margin-bottom: 1rem;
+    backdrop-filter: blur(12px) saturate(140%);
+    transition: background .2s, color .2s, border .2s;
 }
 
-/* Botões */
-button,
-.stDownloadButton button {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    color: #e5f7ff;
-    border: 1px solid rgba(98, 245, 255, 0.35);
-    border-radius: 8px;
-    transition: 0.3s;
-}
-
-button:hover,
-.stDownloadButton button:hover {
-    background: linear-gradient(135deg, #2563eb, #0ea5e9);
-    color: #fff;
-}
-
-/* Labels mais visíveis */
-label,
-.stSelectbox label,
-.stTextInput label,
-.stTextArea label {
-    color: #d1f1ff !important;
+/* Tabs e expanders: apenas leve refino (sem forçar cores demais) */
+.stTabs [role="tab"] {
+    padding: 6px 16px;
+    border-radius: 6px 6px 0 0;
+    margin-right: 6px;
     font-weight: 500;
 }
 
-/* Inputs mais claros */
-.stSelectbox div[data-baseweb="select"],
-.stTextInput input,
-.stTextArea textarea {
-    background-color: rgba(255, 255, 255, 0.08) !important;
-    color: #e5f7ff !important;
-    border-radius: 6px;
-    border: 1px solid rgba(98, 245, 255, 0.25);
+.stTabs [role="tab"][aria-selected="true"] {
+    border-bottom: 3px solid currentColor;
+    font-weight: 600;
 }
 
-/* Placeholders */
-.stTextInput input::placeholder,
-.stTextArea textarea::placeholder {
-    color: #9fb9c8 !important;
-    opacity: 0.7;
+.stExpander {
+    border-radius: 8px;
+    margin-bottom: 8px;
 }
 
-/* Cards de métricas */
+/* Métricas em cards */
 [data-testid="stMetric"] {
-    background: rgba(15, 23, 32, 0.6);
-    border: 1px solid rgba(98, 245, 255, 0.25);
     padding: 12px;
     border-radius: 12px;
     text-align: center;
-    color: #e5f7ff;
+    font-weight: 500;
     backdrop-filter: blur(8px) saturate(120%);
+}
+
+/* ====== DARK ====== */
+@media (prefers-color-scheme: dark) {
+    body {
+        background: #0b0f14;
+        color: #e5f7ff;
+    }
+
+    .block-glass {
+        background: rgba(15, 23, 32, .7);
+        border: 1px solid rgba(98, 245, 255, .25);
+    }
+
+    h1 {
+        color: #62f5ff;
+        text-shadow: 0 0 6px rgba(98, 245, 255, .7), 0 0 12px rgba(98, 245, 255, .5);
+    }
+
+    button,
+    .stDownloadButton button {
+        background: linear-gradient(135deg, #1e293b, #0f172a);
+        color: #62f5ff;
+        border: 1px solid rgba(98, 245, 255, .35);
+    }
+
+    button:hover,
+    .stDownloadButton button:hover {
+        background: linear-gradient(135deg, #62f5ff, #0ea5e9);
+        color: #0b0f14;
+    }
+
+    .stTabs [role="tab"] {
+        color: #9fb9c8;
+    }
+
+    .stTabs [role="tab"][aria-selected="true"] {
+        color: #62f5ff;
+    }
+
+    [data-testid="stMetric"] {
+        background: rgba(15, 23, 32, .6);
+        border: 1px solid rgba(98, 245, 255, .25);
+        color: #e5f7ff;
+    }
+}
+
+/* ====== LIGHT ====== */
+@media (prefers-color-scheme: light) {
+    body {
+        background: #ffffff;
+        color: #1a1a1a;
+    }
+
+    .block-glass {
+        background: rgba(240, 243, 248, .85);
+        border: 1px solid rgba(0, 0, 0, .08);
+    }
+
+    h1 {
+        color: #2563eb;
+        text-shadow: 0 0 4px rgba(37, 99, 235, .25);
+    }
+
+    button,
+    .stDownloadButton button {
+        background: linear-gradient(135deg, #ffffff, #e7edf6);
+        color: #2563eb;
+        border: 1px solid rgba(0, 0, 0, .15);
+    }
+
+    button:hover,
+    .stDownloadButton button:hover {
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #fff;
+    }
+
+    .stTabs [role="tab"] {
+        color: #4b5563;
+    }
+
+    .stTabs [role="tab"][aria-selected="true"] {
+        color: #2563eb;
+    }
+
+    [data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid rgba(0, 0, 0, .08);
+        color: #111827;
+    }
+}
+
+/* Inputs: contraste confortável nos dois temas sem borda “vermelha” */
+.stSelectbox div[data-baseweb="select"],
+.stTextInput input,
+.stTextArea textarea {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: inherit !important;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+
+    .stSelectbox div[data-baseweb="select"],
+    .stTextInput input,
+    .stTextArea textarea {
+        background-color: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(98, 245, 255, 0.25);
+        color: #e5f7ff !important;
+    }
 }

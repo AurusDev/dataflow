@@ -1,19 +1,20 @@
 import os
 import streamlit as st
 import pandas as pd
+
 from dataflow.data_manager import load_file, save_csv, save_xlsx, autosave
 from dataflow.operations import (
     delete_columns, delete_rows, fillna, rename_columns, convert_dtypes_safely
 )
-from dataflow.charts import plot_and_save
+from dataflow.charts import plot_and_save  # aceita agg/top_n
 from dataflow.exporters import export_pdf
 
-# --- silenciar avisos streamlit ---
+# ---- evitar avisos ruidosos do streamlit ----
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit")
 
-# ---------------------- CONFIGURAÇÃO DA PÁGINA ----------------------
+# ---------------------- CONFIG PÁGINA ----------------------
 st.set_page_config(page_title="DataFlow", page_icon="🧊", layout="wide")
 
 STYLE_PATH = "dataflow/assets/style.css"
@@ -21,11 +22,14 @@ if os.path.exists(STYLE_PATH):
     with open(STYLE_PATH, "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# ---------------------- ESTADO DA SESSÃO ----------------------
+# ---------------------- ESTADO ----------------------
 def init_state():
     defaults = dict(
-        df=None, orig_df=None, history=[], hist_idx=-1,
-        cache_dir="tmp_exports", last_chart=None
+        df_master=None,        # dataset canônico (upload + edições)
+        df_view=None,          # dataset derivado (após filtros) usado em TODAS as abas
+        orig_master=None,      # cópia do upload original
+        filters=None,          # dict: {"col":..., "op":..., "val":...}  ou None
+        cache_dir="tmp_exports"
     )
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -33,6 +37,54 @@ def init_state():
     os.makedirs(st.session_state.cache_dir, exist_ok=True)
 
 init_state()
+
+# ---------------------- HELPERS ----------------------
+def _coerce_value_for_col(df: pd.DataFrame, col: str, val: str):
+    """Converte o valor digitado para o tipo da coluna (se numérico)."""
+    if col not in df.columns:
+        return val
+    s = df[col]
+    if pd.api.types.is_numeric_dtype(s):
+        try:
+            return pd.to_numeric(val)
+        except Exception:
+            # se não der, mantém string mesmo
+            return val
+    return val
+
+def apply_filters(df: pd.DataFrame, filters: dict | None) -> pd.DataFrame:
+    """Aplica o filtro simples a um df e retorna a visão."""
+    if df is None or filters is None:
+        return df
+    col, op_label, val = filters.get("col"), filters.get("op"), filters.get("val")
+    if not col or val is None or val == "":
+        return df
+
+    try:
+        if op_label == "Contém (texto)":
+            return df[df[col].astype(str).str.contains(str(val), case=False, na=False)]
+        ops = {
+            "É igual a": "==",
+            "É diferente de": "!=",
+            "Maior que": ">",
+            "Menor que": "<",
+            "Maior ou igual a": ">=",
+            "Menor ou igual a": "<=",
+        }
+        op = ops.get(op_label)
+        if op is None:
+            return df
+        coerced = _coerce_value_for_col(df, col, val)
+        # query com variável local para evitar injeções e respeitar dtype
+        expr = f"`{col}` {op} @coerced"
+        return df.query(expr, local_dict={"coerced": coerced})
+    except Exception:
+        # se der qualquer erro, retorna df sem filtro
+        return df
+
+def recompute_view():
+    """Recalcula a visão global com base no df_master + filtro atual."""
+    st.session_state.df_view = apply_filters(st.session_state.df_master, st.session_state.filters)
 
 # ---------------------- CABEÇALHO ----------------------
 st.markdown(
@@ -48,105 +100,88 @@ st.markdown(
 # ---------------------- UPLOAD + LIMPAR ----------------------
 uploaded = st.file_uploader("📂 Envie um arquivo (.csv ou .xlsx)", type=["csv", "xlsx"])
 
-col1, col2 = st.columns([3, 1])
-with col1:
+left, right = st.columns([3, 1])
+with left:
     if uploaded is not None:
         df = load_file(uploaded)
         df = convert_dtypes_safely(df)
-        st.session_state.df = df.copy()
-        st.session_state.orig_df = df.copy()
-        st.success(f"Arquivo carregado: {uploaded.name} — {df.shape[0]} linhas × {df.shape[1]} colunas")
-        autosave(st.session_state.df)
 
-with col2:
-    if st.session_state.df is not None:
+        st.session_state.df_master = df.copy()
+        st.session_state.orig_master = df.copy()
+        st.session_state.filters = None  # reset filtros
+        recompute_view()
+
+        st.success(f"Arquivo carregado: {uploaded.name} — {df.shape[0]} linhas × {df.shape[1]} colunas")
+        autosave(st.session_state.df_master)
+
+with right:
+    if st.session_state.df_master is not None:
         if st.button("🗑️ Limpar planilha", use_container_width=True):
-            st.session_state.df = None
-            st.session_state.orig_df = None
+            st.session_state.df_master = None
+            st.session_state.orig_master = None
+            st.session_state.filters = None
+            st.session_state.df_view = None
             st.info("A planilha foi descartada. Faça um novo upload para continuar.")
 
-# Se não houver planilha carregada, não mostra abas
-if st.session_state.df is None:
+# Se não houver planilha, não renderiza abas
+if st.session_state.df_master is None or st.session_state.df_view is None:
     st.stop()
 
-# ---------------------- MENU DE ABAS ----------------------
-aba1, aba2, aba3, aba4 = st.tabs(["✏️ Editor de Dados", "📊 Estatísticas", "📈 Gráficos", "💾 Exportar"])
+# ---------------------- ABAS ----------------------
+tab_edit, tab_stats, tab_charts, tab_export = st.tabs(
+    ["✏️ Editor de Dados", "📊 Estatísticas", "📈 Gráficos", "💾 Exportar"]
+)
 
 # ---------------------- EDITOR ----------------------
-with aba1:
+with tab_edit:
     st.subheader("Editor de Dados")
 
-    # --- Filtros amigáveis ---
+    # -------- Filtros (globais) --------
     with st.expander("🔍 Filtros"):
-        colnames = list(st.session_state.df.columns)
-        col = st.selectbox("Coluna", options=colnames, help="Selecione a coluna para aplicar o filtro")
-
-        op_label = st.selectbox(
+        df = st.session_state.df_master
+        colnames = list(df.columns)
+        fcol = st.selectbox("Coluna", colnames, index=0, help="Selecione a coluna para filtrar")
+        fop = st.selectbox(
             "Condição",
-            options=[
-                "É igual a",
-                "É diferente de",
-                "Maior que",
-                "Menor que",
-                "Maior ou igual a",
-                "Menor ou igual a",
-                "Contém (texto)"
-            ],
-            help="Escolha a condição para o filtro"
+            ["É igual a", "É diferente de", "Maior que", "Menor que", "Maior ou igual a", "Menor ou igual a", "Contém (texto)"],
+            index=0,
         )
+        fval = st.text_input("Valor", help="Digite o valor a ser usado no filtro")
 
-        val = st.text_input("Valor", help="Digite o valor a ser usado no filtro")
+        c1, c2 = st.columns([1,1])
+        with c1:
+            if st.button("Aplicar filtro", use_container_width=True):
+                st.session_state.filters = {"col": fcol, "op": fop, "val": fval}
+                recompute_view()
+                st.success("Filtro aplicado.")
+        with c2:
+            if st.button("Limpar filtro", use_container_width=True):
+                st.session_state.filters = None
+                recompute_view()
+                st.info("Filtro removido.")
 
-        if st.button("Aplicar filtro"):
-            if val.strip() != "":
-                try:
-                    if op_label == "Contém (texto)":
-                        mask = st.session_state.df[col].astype(str).str.contains(val, case=False, na=False)
-                        st.session_state.df = st.session_state.df[mask]
-                    else:
-                        ops = {
-                            "É igual a": "==",
-                            "É diferente de": "!=",
-                            "Maior que": ">",
-                            "Menor que": "<",
-                            "Maior ou igual a": ">=",
-                            "Menor ou igual a": "<="
-                        }
-                        op = ops[op_label]
-                        expr = f"`{col}` {op} @val"
-                        st.session_state.df = st.session_state.df.query(expr, local_dict={"val": val})
-
-                    st.success("Filtro aplicado com sucesso ✅")
-                except Exception as e:
-                    st.error(f"Não foi possível aplicar o filtro ❌ ({e})")
-            else:
-                st.warning("Digite um valor para aplicar o filtro.")
-
-    # --- Limpeza ---
+    # -------- Limpeza --------
     with st.expander("🧹 Limpeza de Dados"):
         fill_choice = st.selectbox("Preencher valores ausentes (NaN) com:", ["--", "Valor fixo", "Média", "Mediana", "Moda"])
         fill_value = st.text_input("Valor (se usar 'Valor fixo')", value="") if fill_choice == "Valor fixo" else None
         if st.button("Aplicar preenchimento"):
-            strategy_map = {
-                "Valor fixo": "value",
-                "Média": "mean",
-                "Mediana": "median",
-                "Moda": "mode",
-                "--": "value"
-            }
-            st.session_state.df = fillna(st.session_state.df, strategy=strategy_map[fill_choice], value=fill_value)
+            strategy_map = {"Valor fixo": "value", "Média": "mean", "Mediana": "median", "Moda": "mode", "--": "value"}
+            st.session_state.df_master = fillna(st.session_state.df_master, strategy=strategy_map[fill_choice], value=fill_value)
+            recompute_view()
 
-        cols_to_drop = st.multiselect("Remover colunas", options=list(st.session_state.df.columns))
+        cols_to_drop = st.multiselect("Remover colunas", options=list(st.session_state.df_master.columns))
         if st.button("Remover colunas selecionadas"):
-            st.session_state.df = delete_columns(st.session_state.df, cols_to_drop)
+            st.session_state.df_master = delete_columns(st.session_state.df_master, cols_to_drop)
+            recompute_view()
 
-        idx_str = st.text_input("Remover linhas (digite índices separados por vírgula)", value="")
+        idx_str = st.text_input("Remover linhas (índices separados por vírgula)", value="")
         if st.button("Remover linhas"):
             try:
                 idxs = [int(i.strip()) for i in idx_str.split(",") if i.strip() != ""]
             except Exception:
                 idxs = []
-            st.session_state.df = delete_rows(st.session_state.df, idxs)
+            st.session_state.df_master = delete_rows(st.session_state.df_master, idxs)
+            recompute_view()
 
         mapping_str = st.text_input("Renomear colunas (ex.: Antiga->Nova;Outra->NovoNome)", value="")
         if st.button("Aplicar renomeação"):
@@ -155,116 +190,142 @@ with aba1:
             for p in pairs:
                 a, b = [x.strip() for x in p.split("->", 1)]
                 mapping[a] = b
-            st.session_state.df = rename_columns(st.session_state.df, mapping)
+            st.session_state.df_master = rename_columns(st.session_state.df_master, mapping)
+            recompute_view()
 
         if st.button("⟲ Recarregar versão original"):
-            st.session_state.df = st.session_state.orig_df.copy()
+            st.session_state.df_master = st.session_state.orig_master.copy()
+            recompute_view()
 
-    # --- Editor ---
-    edited = st.data_editor(st.session_state.df, use_container_width=True, num_rows="dynamic")
-    st.session_state.df = pd.DataFrame(edited)
-    st.caption("💡 Dica: edite as células diretamente (clique duplo).")
+    # -------- Editor (edita df_master via df_view) --------
+    st.caption("💡 Dica: você pode editar diretamente as células (clique duplo).")
+    view = st.session_state.df_view.copy()
+    view["__rowid__"] = view.index  # preservar índice de origem
+
+    edited = st.data_editor(
+        view,
+        use_container_width=True,
+        num_rows="dynamic",
+        hide_index=True,
+        disabled=[],
+        key="data_editor_view",
+        column_config={"__rowid__": st.column_config.NumberColumn("row_id", help="id", disabled=True, required=False)},
+    )
+
+    # sincronizar de volta no df_master
+    edited = pd.DataFrame(edited)
+    if "__rowid__" in edited.columns:
+        # linhas existentes
+        old_rows = edited[edited["__rowid__"].notna()].copy()
+        if not old_rows.empty:
+            base_cols = [c for c in old_rows.columns if c != "__rowid__"]
+            st.session_state.df_master.loc[old_rows["__rowid__"].astype(int).values, base_cols] = old_rows[base_cols].values
+
+        # novas linhas (sem rowid) -> anexar ao master
+        new_rows = edited[edited["__rowid__"].isna()].drop(columns="__rowid__", errors="ignore")
+        if not new_rows.empty:
+            st.session_state.df_master = pd.concat([st.session_state.df_master, new_rows], ignore_index=True)
+
+        recompute_view()
 
 # ---------------------- ESTATÍSTICAS ----------------------
-with aba2:
+with tab_stats:
     st.subheader("📊 Estatísticas Dinâmicas")
+    df = st.session_state.df_view
 
-    df = st.session_state.df
-
-    # Resumo geral em cards
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Total de Linhas", df.shape[0])
-    with c2:
-        st.metric("Total de Colunas", df.shape[1])
-    with c3:
-        st.metric("Valores Nulos", int(df.isna().sum().sum()))
+    with c1: st.metric("Total de Linhas", df.shape[0])
+    with c2: st.metric("Total de Colunas", df.shape[1])
+    with c3: st.metric("Valores Nulos", int(df.isna().sum().sum()))
 
     st.markdown("---")
 
-    # Exploração de coluna
-    col = st.selectbox("Selecione uma coluna para explorar:", df.columns)
-
+    col = st.selectbox("Selecione uma coluna para explorar:", df.columns, key="col_selecionada")
     if col:
         if pd.api.types.is_numeric_dtype(df[col]):
             st.write(f"### 🔢 Coluna Numérica: **{col}**")
-
             c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Média", round(df[col].mean(), 2))
-            with c2:
-                st.metric("Mediana", round(df[col].median(), 2))
-            with c3:
-                st.metric("Desvio Padrão", round(df[col].std(), 2))
-
+            with c1: st.metric("Média", round(df[col].mean(), 2))
+            with c2: st.metric("Mediana", round(df[col].median(), 2))
+            with c3: st.metric("Desvio Padrão", round(df[col].std(), 2))
             c4, c5, c6 = st.columns(3)
-            with c4:
-                st.metric("Mínimo", round(df[col].min(), 2))
-            with c5:
-                st.metric("Máximo", round(df[col].max(), 2))
-            with c6:
-                st.metric("Valores Únicos", df[col].nunique())
-
-            st.write("#### 📖 Insight Automático")
-            st.info(f"A coluna **{col}** possui média de {round(df[col].mean(),2)}, "
-                    f"mediana de {round(df[col].median(),2)}, "
-                    f"e valores variando entre {df[col].min()} e {df[col].max()}.")
-
+            with c4: st.metric("Mínimo", round(df[col].min(), 2))
+            with c5: st.metric("Máximo", round(df[col].max(), 2))
+            with c6: st.metric("Valores Únicos", df[col].nunique())
+            st.info(f"A coluna **{col}** possui média {round(df[col].mean(),2)}, "
+                    f"mediana {round(df[col].median(),2)}; varia de {df[col].min()} a {df[col].max()}.")
             st.bar_chart(df[col].dropna(), use_container_width=True)
-
         else:
             st.write(f"### 🔤 Coluna Categórica: **{col}**")
-
             c1, c2 = st.columns(2)
-            with c1:
-                st.metric("Valores Únicos", df[col].nunique())
-            with c2:
-                st.metric("Valor Mais Frequente", str(df[col].mode().iloc[0]))
-
+            with c1: st.metric("Valores Únicos", df[col].nunique())
+            top = df[col].mode().iloc[0] if not df[col].mode().empty else "-"
+            with c2: st.metric("Valor Mais Frequente", str(top))
             freq = df[col].value_counts()
-            top_val, top_count = freq.index[0], freq.iloc[0]
-
-            st.write("#### 📖 Insight Automático")
-            st.info(f"A coluna **{col}** possui {df[col].nunique()} valores únicos. "
-                    f"O valor mais frequente é **{top_val}**, aparecendo {top_count} vezes.")
-
-            st.write("#### Frequência dos Valores (Top 10)")
-            st.bar_chart(freq.head(10), use_container_width=True)
+            if not freq.empty:
+                st.info(f"A coluna **{col}** possui {df[col].nunique()} valores únicos. "
+                        f"O mais frequente é **{freq.index[0]}** ({freq.iloc[0]} ocorrências).")
+                st.bar_chart(freq.head(10), use_container_width=True)
 
 # ---------------------- GRÁFICOS ----------------------
-with aba3:
+with tab_charts:
     st.subheader("📈 Gráficos")
-    num_cols = st.session_state.df.select_dtypes(include="number").columns.tolist()
-    all_cols = list(st.session_state.df.columns)
+    df = st.session_state.df_view
+
+    num_cols = df.select_dtypes(include="number").columns.tolist()
+    all_cols = list(df.columns)
 
     x_col = st.selectbox("Eixo X", options=["(índice)"] + all_cols, index=0)
     y_col = st.selectbox("Eixo Y", options=num_cols if num_cols else all_cols)
     kind_label = st.selectbox("Tipo de gráfico", ["Linha", "Barra", "Dispersão", "Histograma"])
 
+    agg_label = "Sem agregação"
+    top_n = None
+    if kind_label in ["Barra", "Linha"]:
+        agg_label = st.selectbox(
+            "Como agregar?",
+            ["Somar por categoria", "Média por categoria", "Contar registros", "Máximo por categoria", "Mínimo por categoria"],
+            index=0
+        )
+        top_n = st.slider("Limitar categorias (Top N)", 5, 100, 20, 1)
+
     if st.button("Gerar gráfico"):
-        work_df = st.session_state.df.reset_index().rename(columns={"index": "index_"})
+        work_df = df.reset_index().rename(columns={"index": "index_"})
         x_use = "index_" if x_col == "(índice)" else x_col
 
-        kind_map = {
-            "Linha": "line",
-            "Barra": "bar",
-            "Dispersão": "scatter",
-            "Histograma": "hist"
+        kind_map = {"Linha": "line", "Barra": "bar", "Dispersão": "scatter", "Histograma": "hist"}
+        agg_map = {
+            "Sem agregação": "none",
+            "Somar por categoria": "sum",
+            "Média por categoria": "mean",
+            "Contar registros": "count",
+            "Máximo por categoria": "max",
+            "Mínimo por categoria": "min",
         }
         kind = kind_map[kind_label]
+        agg = agg_map.get(agg_label, "none")
 
-        chart_path = plot_and_save(work_df, x_use, y_col, kind, st.session_state.cache_dir)
-        st.image(chart_path, caption=os.path.basename(chart_path), use_container_width=True)
+        if kind == "hist" and not pd.api.types.is_numeric_dtype(work_df[y_col]):
+            st.error("Para histograma, selecione uma coluna numérica no eixo Y.")
+        else:
+            chart_path = plot_and_save(
+                work_df, x_use, y_col,
+                kind=kind,
+                outdir=st.session_state.cache_dir,
+                agg=agg,
+                top_n=top_n if kind in ["bar", "line"] else None
+            )
+            st.image(chart_path, caption=os.path.basename(chart_path), use_container_width=True)
 
 # ---------------------- EXPORTAR ----------------------
-with aba4:
+with tab_export:
     st.subheader("💾 Exportar Dados")
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.download_button("Exportar como CSV", data=save_csv(st.session_state.df),
+        st.download_button("Exportar como CSV", data=save_csv(st.session_state.df_view),
                            file_name="dataflow_export.csv", mime="text/csv", use_container_width=True)
     with c2:
-        st.download_button("Exportar como Excel (XLSX)", data=save_xlsx(st.session_state.df),
+        st.download_button("Exportar como Excel (XLSX)", data=save_xlsx(st.session_state.df_view),
                            file_name="dataflow_export.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            use_container_width=True)
@@ -274,12 +335,11 @@ with aba4:
             if os.path.exists(st.session_state.cache_dir):
                 charts = [os.path.join(st.session_state.cache_dir, f)
                           for f in os.listdir(st.session_state.cache_dir) if f.lower().endswith(".png")]
-            pdf_path = export_pdf(st.session_state.df, charts, st.session_state.cache_dir)
+            pdf_path = export_pdf(st.session_state.df_view, charts, st.session_state.cache_dir)
             with open(pdf_path, "rb") as f:
                 st.download_button("Baixar como PDF", data=f.read(),
                                    file_name="dataflow_relatorio.pdf", mime="application/pdf",
                                    use_container_width=True)
 
-# Autosave
-autosave(st.session_state.df)
-# Fim do arquivo
+# autosave do master (não do view)
+autosave(st.session_state.df_master)
