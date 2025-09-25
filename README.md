@@ -41,3 +41,11 @@ Clone o repositório e instale as dependências:
 git clone https://github.com/AurusDev/DataFlow.git
 cd DataFlow
 pip install -r requirements.txt
+
+---
+
+## 📌 Recursos adicionais
+
+- 📖 [Guia de Contribuição](CONTRIBUTING.md)  
+- 🛣️ [Roadmap do Projeto](ROADMAP.md)
+
