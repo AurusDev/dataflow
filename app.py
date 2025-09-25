@@ -6,7 +6,7 @@ from dataflow.data_manager import load_file, save_csv, save_xlsx, autosave
 from dataflow.operations import (
     delete_columns, delete_rows, fillna, rename_columns, convert_dtypes_safely
 )
-from dataflow.charts import plot_and_save  # aceita agg/top_n
+from dataflow.charts import plot_and_save
 from dataflow.exporters import export_pdf
 
 # ---- evitar avisos ruidosos do streamlit ----
@@ -25,10 +25,10 @@ if os.path.exists(STYLE_PATH):
 # ---------------------- ESTADO ----------------------
 def init_state():
     defaults = dict(
-        df_master=None,        # dataset canônico (upload + edições)
-        df_view=None,          # dataset derivado (após filtros) usado em TODAS as abas
-        orig_master=None,      # cópia do upload original
-        filters=None,          # dict: {"col":..., "op":..., "val":...}  ou None
+        df_master=None,
+        df_view=None,
+        orig_master=None,
+        filters=None,
         cache_dir="tmp_exports"
     )
     for k, v in defaults.items():
@@ -40,7 +40,6 @@ init_state()
 
 # ---------------------- HELPERS ----------------------
 def _coerce_value_for_col(df: pd.DataFrame, col: str, val: str):
-    """Converte o valor digitado para o tipo da coluna (se numérico)."""
     if col not in df.columns:
         return val
     s = df[col]
@@ -52,7 +51,6 @@ def _coerce_value_for_col(df: pd.DataFrame, col: str, val: str):
     return val
 
 def apply_filters(df: pd.DataFrame, filters: dict | None) -> pd.DataFrame:
-    """Aplica o filtro simples a um df e retorna a visão."""
     if df is None or filters is None:
         return df
     col, op_label, val = filters.get("col"), filters.get("op"), filters.get("val")
@@ -80,7 +78,6 @@ def apply_filters(df: pd.DataFrame, filters: dict | None) -> pd.DataFrame:
         return df
 
 def recompute_view():
-    """Recalcula a visão global com base no df_master + filtro atual."""
     st.session_state.df_view = apply_filters(st.session_state.df_master, st.session_state.filters)
 
 # ---------------------- CABEÇALHO ----------------------
@@ -132,33 +129,29 @@ tab_edit, tab_stats, tab_charts, tab_export = st.tabs(
 with tab_edit:
     st.subheader("Editor de Dados")
 
-    # -------- Filtros --------
     with st.expander("🔍 Filtros"):
         df = st.session_state.df_master
         colnames = list(df.columns)
         fcol = st.selectbox("Coluna", colnames, index=0)
-        fop = st.selectbox(
-            "Condição",
-            ["É igual a", "É diferente de", "Maior que", "Menor que", "Maior ou igual a", "Menor ou igual a", "Contém (texto)"],
-            index=0,
-        )
+        fop = st.selectbox("Condição", [
+            "É igual a", "É diferente de", "Maior que", "Menor que",
+            "Maior ou igual a", "Menor ou igual a", "Contém (texto)"
+        ])
         fval = st.text_input("Valor")
 
-        c1, c2 = st.columns([1,1])
+        c1, c2 = st.columns(2)
         with c1:
             if st.button("Aplicar filtro", use_container_width=True):
                 st.session_state.filters = {"col": fcol, "op": fop, "val": fval}
                 recompute_view()
-                st.success("Filtro aplicado.")
         with c2:
             if st.button("Limpar filtro", use_container_width=True):
                 st.session_state.filters = None
                 recompute_view()
-                st.info("Filtro removido.")
 
-    # -------- Limpeza --------
     with st.expander("🧹 Limpeza de Dados"):
-        fill_choice = st.selectbox("Preencher valores ausentes (NaN) com:", ["--", "Valor fixo", "Média", "Mediana", "Moda"])
+        fill_choice = st.selectbox("Preencher valores ausentes (NaN) com:",
+                                   ["--", "Valor fixo", "Média", "Mediana", "Moda"])
         fill_value = st.text_input("Valor (se usar 'Valor fixo')", value="") if fill_choice == "Valor fixo" else None
         if st.button("Aplicar preenchimento"):
             strategy_map = {"Valor fixo": "value", "Média": "mean", "Mediana": "median", "Moda": "mode", "--": "value"}
@@ -167,12 +160,8 @@ with tab_edit:
 
         cols_to_drop = st.multiselect("Remover colunas", options=list(st.session_state.df_master.columns))
         if st.button("Remover colunas selecionadas"):
-            if cols_to_drop:
-                st.session_state.df_master = delete_columns(st.session_state.df_master, cols_to_drop)
-                recompute_view()
-                st.success(f"Colunas removidas: {', '.join(cols_to_drop)}")
-            else:
-                st.warning("Nenhuma coluna selecionada para remover.")
+            st.session_state.df_master = delete_columns(st.session_state.df_master, cols_to_drop)
+            recompute_view()
 
         idx_str = st.text_input("Remover linhas (índices separados por vírgula)", value="")
         if st.button("Remover linhas"):
@@ -206,9 +195,8 @@ with tab_edit:
         use_container_width=True,
         num_rows="dynamic",
         hide_index=True,
-        disabled=[],
         key="data_editor_view",
-        column_config={"__rowid__": st.column_config.NumberColumn("row_id", help="id", disabled=True, required=False)},
+        column_config={"__rowid__": st.column_config.NumberColumn("row_id", help="id", disabled=True)},
     )
 
     edited = pd.DataFrame(edited)
@@ -313,25 +301,43 @@ with tab_charts:
 with tab_export:
     st.subheader("💾 Exportar Dados")
     c1, c2, c3 = st.columns(3)
+
     with c1:
-        st.download_button("Exportar como CSV", data=save_csv(st.session_state.df_view),
-                           file_name="dataflow_export.csv", mime="text/csv", use_container_width=True)
+        st.download_button(
+            "Exportar como CSV",
+            data=save_csv(st.session_state.df_view),
+            file_name="dataflow_export.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
     with c2:
-        st.download_button("Exportar como Excel (XLSX)", data=save_xlsx(st.session_state.df_view),
-                           file_name="dataflow_export.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           use_container_width=True)
+        st.download_button(
+            "Exportar como Excel (XLSX)",
+            data=save_xlsx(st.session_state.df_view),
+            file_name="dataflow_export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
     with c3:
-        if st.button("Gerar PDF"):
+        if st.button("Gerar PDF", use_container_width=True):
             charts = []
             if os.path.exists(st.session_state.cache_dir):
-                charts = [os.path.join(st.session_state.cache_dir, f)
-                          for f in os.listdir(st.session_state.cache_dir) if f.lower().endswith(".png")]
+                charts = [
+                    os.path.join(st.session_state.cache_dir, f)
+                    for f in os.listdir(st.session_state.cache_dir)
+                    if f.lower().endswith(".png")
+                ]
             pdf_path = export_pdf(st.session_state.df_view, charts, st.session_state.cache_dir)
             with open(pdf_path, "rb") as f:
-                st.download_button("Baixar como PDF", data=f.read(),
-                                   file_name="dataflow_relatorio.pdf", mime="application/pdf",
-                                   use_container_width=True)
+                st.download_button(
+                    "📄 Baixar Relatório PDF",
+                    data=f.read(),
+                    file_name="dataflow_relatorio.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
-# autosave do master (não do view)
+# autosave do master
 autosave(st.session_state.df_master)
