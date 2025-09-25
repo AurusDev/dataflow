@@ -11,7 +11,7 @@ O **DataFlow** é um aplicativo construído em [Streamlit](https://streamlit.io/
 
 ## 🚀 Deploy Público
 
-👉 [Acesse aqui no Streamlit Cloud](https://dataflow-XXXXXX.streamlit.app/)  
+👉 [Acesse aqui no Streamlit Cloud](hhttps://dataflow.streamlit.app/)  
 
 *(substitua pelo link real do seu deploy)*
 
