@@ -13,8 +13,6 @@ O **DataFlow** é um aplicativo construído em [Streamlit](https://streamlit.io/
 
 👉 [Acesse aqui no Streamlit Cloud](hhttps://dataflow.streamlit.app/)  
 
-*(substitua pelo link real do seu deploy)*
-
 ---
 
 ## ✨ Funcionalidades
@@ -32,7 +30,6 @@ O **DataFlow** é um aplicativo construído em [Streamlit](https://streamlit.io/
 ## 🖼️ Preview
 
 ![Screenshot do DataFlow](dataflow/assets/banner.png)  
-*(coloque aqui um print real do app rodando em `assets/` e ajuste o caminho se necessário)*
 
 ---
 
