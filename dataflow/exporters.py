@@ -1,108 +1,99 @@
 import os
+from datetime import datetime
+import pandas as pd
 from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer,
-    Table, TableStyle, Image, PageBreak
-)
+from reportlab.lib import colors
 
 
-def export_pdf(df, charts, outdir):
+def export_pdf(df: pd.DataFrame, charts: list[str], outdir: str) -> str:
     """
-    Gera um relatório PDF estilizado com base no dataframe filtrado/atualizado
-    e gráficos gerados durante a sessão.
+    Gera relatório PDF estilizado com base no DataFrame e gráficos exportados.
 
     Args:
-        df (pd.DataFrame): dataframe final (df_view) após edições e filtros
-        charts (list[str]): caminhos das imagens de gráficos
-        outdir (str): pasta de saída
+        df (pd.DataFrame): DataFrame já processado (inclui alterações do usuário).
+        charts (list[str]): Lista de caminhos de gráficos (imagens .png).
+        outdir (str): Diretório de saída para salvar o PDF.
 
     Returns:
-        str: caminho completo do PDF gerado
+        str: Caminho final do PDF gerado.
     """
+    os.makedirs(outdir, exist_ok=True)
     pdf_path = os.path.join(outdir, "dataflow_relatorio.pdf")
 
-    # Documento base
-    doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+    doc = SimpleDocTemplate(pdf_path, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     elements = []
 
-    # ====== Estilos ======
+    # ---- Estilos ----
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "title",
-        parent=styles["Heading1"],
-        fontSize=22,
-        textColor=colors.HexColor("#62f5ff"),
-        alignment=1,  # centralizado
-        spaceAfter=20,
-    )
-    subtitle_style = ParagraphStyle(
-        "subtitle",
-        parent=styles["Heading2"],
-        fontSize=16,
-        textColor=colors.HexColor("#0ea5e9"),
-        spaceBefore=12,
-        spaceAfter=8,
-    )
-    normal_style = styles["Normal"]
+    styles.add(ParagraphStyle(name="TitleCustom", fontSize=18, leading=22, alignment=1, textColor=colors.HexColor("#0ea5e9")))
+    styles.add(ParagraphStyle(name="Subtitle", fontSize=11, leading=14, spaceAfter=10, textColor=colors.grey))
+    styles.add(ParagraphStyle(name="NormalSmall", fontSize=9, leading=12))
 
-    # ====== Cabeçalho ======
-    elements.append(Paragraph("📊 Relatório DataFlow", title_style))
-    elements.append(Paragraph(
-        "Este relatório reflete todas as edições, filtros e estatísticas aplicadas no DataFlow durante a sessão.",
-        normal_style,
-    ))
-    elements.append(Spacer(1, 20))
+    # ---- Cabeçalho ----
+    elements.append(Paragraph("Relatório DataFlow", styles["TitleCustom"]))
+    elements.append(Paragraph(datetime.now().strftime("%d/%m/%Y %H:%M"), styles["Subtitle"]))
+    elements.append(Spacer(1, 12))
 
-    # ====== Estatísticas ======
-    elements.append(Paragraph("📈 Estatísticas do Dataset", subtitle_style))
-    stats_data = [
-        ["Total de Linhas", len(df)],
-        ["Total de Colunas", len(df.columns)],
-        ["Valores Nulos", int(df.isna().sum().sum())],
+    # ---- Estatísticas rápidas ----
+    stats_summary = [
+        f"Total de Linhas: {df.shape[0]}",
+        f"Total de Colunas: {df.shape[1]}",
+        f"Valores Nulos: {int(df.isna().sum().sum())}"
     ]
-    stats_table = Table(stats_data, colWidths=[200, 200])
-    stats_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0b0f14")),
+    for stat in stats_summary:
+        elements.append(Paragraph(stat, styles["NormalSmall"]))
+    elements.append(Spacer(1, 12))
+
+    # ---- Estatísticas detalhadas por coluna ----
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            desc = (
+                f"<b>{col}</b> → Média: {df[col].mean():.2f}, "
+                f"Mediana: {df[col].median():.2f}, "
+                f"Mín: {df[col].min()}, "
+                f"Máx: {df[col].max()}, "
+                f"Únicos: {df[col].nunique()}"
+            )
+        else:
+            top = df[col].mode().iloc[0] if not df[col].mode().empty else "-"
+            desc = (
+                f"<b>{col}</b> → Únicos: {df[col].nunique()}, "
+                f"Mais frequente: {top}"
+            )
+        elements.append(Paragraph(desc, styles["NormalSmall"]))
+    elements.append(Spacer(1, 14))
+
+    # ---- Tabela com dados ----
+    max_rows = 30  # limitar para não estourar o PDF
+    table_data = [list(df.columns)] + df.head(max_rows).astype(str).values.tolist()
+
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0ea5e9")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#62f5ff")),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
     ]))
-    elements.append(stats_table)
+
+    elements.append(table)
     elements.append(Spacer(1, 20))
 
-    # ====== Preview dos dados ======
-    elements.append(Paragraph("📋 Preview dos Dados", subtitle_style))
-    if not df.empty:
-        preview = df.head(15).reset_index().astype(str).values.tolist()
-        preview.insert(0, ["Index"] + list(df.columns))
-
-        preview_table = Table(preview, repeatRows=1)
-        preview_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#62f5ff")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ]))
-        elements.append(preview_table)
-    else:
-        elements.append(Paragraph("⚠ Nenhum dado disponível no momento.", normal_style))
-
-    elements.append(PageBreak())
-
-    # ====== Gráficos ======
+    # ---- Gráficos ----
     if charts:
-        elements.append(Paragraph("📊 Gráficos Gerados", subtitle_style))
-        for chart in charts:
-            try:
-                elements.append(Image(chart, width=400, height=250))
-                elements.append(Spacer(1, 20))
-            except Exception:
-                elements.append(Paragraph(f"⚠ Erro ao carregar gráfico: {chart}", normal_style))
+        elements.append(PageBreak())
+        elements.append(Paragraph("📊 Gráficos", styles["TitleCustom"]))
+        elements.append(Spacer(1, 12))
 
-    # Monta o documento final
+        for chart in charts:
+            if os.path.exists(chart):
+                elements.append(Image(chart, width=450, height=250))
+                elements.append(Spacer(1, 12))
+
+    # ---- Constrói PDF ----
     doc.build(elements)
     return pdf_path
-# Fim do arquivo exporters.py
